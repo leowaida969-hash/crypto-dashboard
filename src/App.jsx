@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineStyle } from "lightweight-charts";
 import { motion, AnimatePresence } from "framer-motion";
 
-/* ================= THEME ENGINE V7 ================= */
+/* ================= THEME ENGINE V8 (Vivid Colors) ================= */
 const THEMES = {
   SYSTEM: {
     name: "System",
@@ -40,7 +40,7 @@ export default function App() {
   return <Dashboard />;
 }
 
-/* ================= DASHBOARD V7 ================= */
+/* ================= DASHBOARD V8 ================= */
 function Dashboard() {
   const chartContainerRef = useRef(null);
   const seriesInstance = useRef(null);
@@ -65,7 +65,7 @@ function Dashboard() {
   const [newsIndex, setNewsIndex] = useState(0);
 
   // 📐 MANUAL FIB & ALERTS
-  const [showFibs, setShowFibs] = useState(true); // Master toggle for Fibs
+  const [showFibs, setShowFibs] = useState(true); 
   const [manualFib, setManualFib] = useState({ high: "", low: "", active: false });
   
   const [alertPrice, setAlertPrice] = useState("");
@@ -116,7 +116,7 @@ function Dashboard() {
     if (Notification.permission === "granted") new Notification("WAIDA Alert", { body: msg });
   };
 
-  /* ================= 🧠 DEEP ANALYSIS LOGIC ================= */
+  /* ================= 🧠 INTELLIGENCE LOGIC ================= */
   const analyzeMarket = useCallback((candles, currentPrice) => {
     const series = seriesInstance.current;
     if (!series || candles.length < 50) return;
@@ -129,7 +129,6 @@ function Dashboard() {
     let high = Math.max(...subset.map(c => c.high));
     let low = Math.min(...subset.map(c => c.low));
     
-    // OVERRIDE WITH MANUAL FIB IF ACTIVE
     if (manualFib.active && manualFib.high && manualFib.low) {
       high = parseFloat(manualFib.high);
       low = parseFloat(manualFib.low);
@@ -137,7 +136,6 @@ function Dashboard() {
 
     const ema20 = subset.slice(-20).reduce((a,b)=>a+b.close,0)/20;
     const ema50 = subset.slice(-50).reduce((a,b)=>a+b.close,0)/50;
-    
     const trend = activePrice > ema50 ? "BULLISH" : "BEARISH";
     const trendStrength = Math.abs(ema20 - ema50) / activePrice > 0.005 ? "Strong" : "Weak";
 
@@ -158,20 +156,16 @@ function Dashboard() {
     // 4. Pattern
     const pattern = detectPattern(candles);
 
-    // 5. Fibonacci Golden Zone Logic (0.5 - 0.618)
+    // 5. Fibonacci Golden Zone Check
     const range = high - low;
     const fib50 = trend === "BULLISH" ? high - (range * 0.5) : low + (range * 0.5);
     const fib618 = trend === "BULLISH" ? high - (range * 0.618) : low + (range * 0.618);
-    
-    // Determine upper/lower bounds of the Golden Zone
     const zoneTop = Math.max(fib50, fib618);
     const zoneBottom = Math.min(fib50, fib618);
-    
-    // Check if price is INSIDE the Golden Zone
     const inGoldenZone = activePrice >= zoneBottom && activePrice <= zoneTop;
     const fibStatus = inGoldenZone ? "IN GOLDEN ZONE (50-61.8%)" : "Outside Key Zone";
 
-    // 6. Setup & Confluence
+    // 6. Confidence Scoring
     let confirmations = [];
     let score = 0;
 
@@ -194,12 +188,15 @@ function Dashboard() {
     const tp2 = trend === "BULLISH" ? activePrice + (slDist * 2.5) : activePrice - (slDist * 2.5);
     const rr = 2.5;
 
-    // Draw Lines
+    // Structure Lines
     linesRef.current.forEach(l => series.removePriceLine(l));
     linesRef.current = [];
-    linesRef.current.push(series.createPriceLine({ price: low, color: theme.green, lineWidth: 2, lineStyle: LineStyle.Dotted, title: "L" }));
-    linesRef.current.push(series.createPriceLine({ price: high, color: theme.red, lineWidth: 2, lineStyle: LineStyle.Dotted, title: "H" }));
+    if (!manualFib.active) {
+       linesRef.current.push(series.createPriceLine({ price: low, color: theme.subText, lineWidth: 1, lineStyle: LineStyle.SparseDotted, title: "Swing Low", axisLabelVisible: false }));
+       linesRef.current.push(series.createPriceLine({ price: high, color: theme.subText, lineWidth: 1, lineStyle: LineStyle.SparseDotted, title: "Swing High", axisLabelVisible: false }));
+    }
     
+    // Draw Fibs if toggled ON
     if (showFibs) {
         drawFibonacci(series, high, low, trend);
     } else {
@@ -229,11 +226,9 @@ function Dashboard() {
     const isGreen = (c) => c.close > c.open; 
     const body = (c) => Math.abs(c.close - c.open); 
     
-    // Engulfing (High Confidence in Golden Zone)
     if (!isGreen(c1) && isGreen(c0) && c0.close > c1.open && c0.open < c1.close) return "Bullish Engulfing";
     if (isGreen(c1) && !isGreen(c0) && c0.close < c1.open && c0.open > c1.close) return "Bearish Engulfing";
     
-    // Pin Bars
     const tail = (c) => Math.abs(Math.min(c.open, c.close) - c.low);
     const head = (c) => Math.abs(c.high - Math.max(c.open, c.close));
     if (tail(c0) > body(c0) * 2 && head(c0) < body(c0) * 0.5) return "Hammer (Rejection)";
@@ -241,27 +236,36 @@ function Dashboard() {
     return "Consolidation";
   };
 
+  // ================= 🎨 "EASY TO KNOW" STYLE FIBONACCI =================
   const drawFibonacci = (series, high, low, trend) => {
+    // Clear old lines
     fibLinesRef.current.forEach(l => series.removePriceLine(l));
     fibLinesRef.current = [];
     const diff = high - low;
     
-    // BEST SETTINGS: 0, 0.382, 0.5, 0.618, 1 (Ignored 0.236 & 0.786 for noise reduction)
-    const levels = [0, 0.382, 0.5, 0.618, 1];
+    // Config: Level, Color, Label, IsImportant
+    const levels = [
+        { lvl: 0, color: "#ef4444", label: "0 (Start/Stop)", type: "solid" }, // RED
+        { lvl: 0.236, color: "#ef4444", label: "0.236 (Take Profit Area)", type: "dashed" }, // RED
+        { lvl: 0.382, color: "#f59e0b", label: "0.382 (Caution)", type: "dashed" }, // ORANGE
+        { lvl: 0.5, color: "#22c55e", label: "0.5 (Confirm Buy)", type: "solid" }, // GREEN
+        { lvl: 0.618, color: "#22c55e", label: "0.618 (GOLDEN POCKET)", type: "solid" }, // GREEN
+        { lvl: 0.786, color: "#3b82f6", label: "0.786 (Deep Discount)", type: "dashed" }, // BLUE
+        { lvl: 1, color: "#3b82f6", label: "1 (Low/Stop)", type: "solid" } // BLUE
+    ];
 
-    levels.forEach(level => {
-      let price = trend === "BULLISH" ? high - (diff * level) : low + (diff * level);
+    levels.forEach(cfg => {
+      let price = trend === "BULLISH" ? high - (diff * cfg.lvl) : low + (diff * cfg.lvl);
       
-      // Highlight Golden Zone (0.5 & 0.618)
-      const isGoldenZone = level === 0.5 || level === 0.618;
+      const isGolden = cfg.lvl === 0.5 || cfg.lvl === 0.618;
       
       const line = series.createPriceLine({
         price: price,
-        color: isGoldenZone ? theme.gold : theme.subText, // Gold color for zone
-        lineWidth: isGoldenZone ? 2 : 1, // Thicker lines for Golden Zone
-        lineStyle: isGoldenZone ? LineStyle.Solid : LineStyle.Dashed,
+        color: cfg.color, // Vivid color from palette
+        lineWidth: isGolden ? 3 : 1, // Thicker for "Easy to Know" zones
+        lineStyle: cfg.type === "solid" ? LineStyle.Solid : LineStyle.Dashed,
         axisLabelVisible: true,
-        title: `Fib ${level}`,
+        title: cfg.label, // Descriptive label
       });
       fibLinesRef.current.push(line);
     });
@@ -272,11 +276,14 @@ function Dashboard() {
     if (!chartContainerRef.current) return;
     chartContainerRef.current.innerHTML = "";
     
+    // Auto-Size container
+    const containerRect = chartContainerRef.current.getBoundingClientRect();
+
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: theme.panel }, textColor: theme.text },
       grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
-      width: chartContainerRef.current.clientWidth,
-      height: isMobile ? 500 : 750,
+      width: containerRect.width,
+      height: containerRect.height,
       rightPriceScale: { borderColor: theme.border },
       timeScale: { borderColor: theme.border, timeVisible: true },
     });
@@ -290,14 +297,12 @@ function Dashboard() {
 
     const interval = TIMEFRAMES[tf];
     let candleCache = [];
-
     fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=500`)
       .then(r=>r.json()).then(data => {
         if(!Array.isArray(data)) return;
         const candles = data.map(x => ({ time: x[0]/1000, open: +x[1], high: +x[2], low: +x[3], close: +x[4] }));
         candleCache = candles;
         const vol = data.map(x => ({ time: x[0]/1000, value: +x[5], color: +x[4]>=+x[1]? theme.green: theme.red }));
-        
         series.setData(candles);
         volumeSeries.setData(vol);
         analyzeMarket(candles, candles[candles.length-1].close);
@@ -308,11 +313,9 @@ function Dashboard() {
       const { k } = JSON.parse(e.data);
       const price = parseFloat(k.c);
       const candle = { time: k.t/1000, open: +k.o, high: +k.h, low: +k.l, close: price };
-      
       series.update(candle);
       volumeSeries.update({ time: k.t/1000, value: +k.v, color: price >= +k.o ? theme.green : theme.red });
       setTicker(p => ({ ...p, [pair]: price }));
-
       if (k.x) {
          candleCache.push(candle);
          if(candleCache.length > 500) candleCache.shift();
@@ -320,7 +323,6 @@ function Dashboard() {
       } else {
          setIntel(prev => ({ ...prev, price: price }));
       }
-      
       if (alertRef.current.active && alertRef.current.price) {
          const t = parseFloat(alertRef.current.price);
          if (Math.abs(price - t) / t < 0.001) {
@@ -330,7 +332,12 @@ function Dashboard() {
       }
     };
 
-    const resize = () => chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+    const resize = () => {
+        if (chartContainerRef.current) {
+            const { width, height } = chartContainerRef.current.getBoundingClientRect();
+            chart.applyOptions({ width, height });
+        }
+    };
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); ws.close(); chart.remove(); };
   }, [pair, tf, currentTheme, isMobile, manualFib.active, showFibs, analyzeMarket]);
@@ -338,9 +345,9 @@ function Dashboard() {
   const formatPrice = (p) => !p ? "..." : p < 1 ? p.toFixed(6) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div style={{ background: theme.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif", color: theme.text }}>
+    <div style={{ background: theme.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Inter', sans-serif", color: theme.text, overflow: "hidden" }}>
       
-      {/* 📊 PROFESSIONAL REPORT MODAL */}
+      {/* REPORT MODAL */}
       <AnimatePresence>
         {showReport && (
           <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)", display: "flex", justifyContent: "center", alignItems: "center", padding: "20px" }}>
@@ -348,7 +355,6 @@ function Dashboard() {
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               style={{ width: "900px", maxHeight: "90vh", background: theme.panel, borderRadius: "24px", border: `1px solid ${theme.border}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)" }}
             >
-              {/* HEADER */}
               <div style={{ padding: "24px 32px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: theme.cardBg }}>
                  <div>
                     <h2 style={{ margin: 0, fontSize: "24px", color: theme.text }}>Strategic Blueprint</h2>
@@ -360,10 +366,7 @@ function Dashboard() {
                  </div>
               </div>
 
-              {/* BODY */}
               <div style={{ padding: "32px", overflowY: "auto", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "30px" }}>
-                
-                {/* COLUMN 1: ANALYSIS */}
                 <div>
                    <h3 style={{ fontSize: "14px", color: theme.primary, letterSpacing: "1px", marginBottom: "16px" }}>01. MARKET CONTEXT</h3>
                    <div style={{ background: theme.bg, padding: "20px", borderRadius: "16px", border: `1px solid ${theme.border}` }}>
@@ -372,7 +375,6 @@ function Dashboard() {
                       <ReportRow label="Volatility (ATR)" value={intel.volatility} color={theme.subText} theme={theme} />
                       <ReportRow label="Pattern Detected" value={intel.pattern} color={theme.gold} theme={theme} />
                    </div>
-                   
                    <h3 style={{ fontSize: "14px", color: theme.primary, letterSpacing: "1px", marginTop: "24px", marginBottom: "16px" }}>02. CONFIRMATIONS</h3>
                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                       {intel.confirmations.length > 0 ? intel.confirmations.map((c, i) => (
@@ -382,8 +384,6 @@ function Dashboard() {
                       )) : <span style={{fontSize: "13px", color: theme.subText}}>No strong confirmations yet.</span>}
                    </div>
                 </div>
-
-                {/* COLUMN 2: EXECUTION */}
                 <div>
                    <h3 style={{ fontSize: "14px", color: theme.primary, letterSpacing: "1px", marginBottom: "16px" }}>03. EXECUTION SETUP</h3>
                    <div style={{ background: theme.cardBg, borderRadius: "16px", border: `1px solid ${theme.border}`, overflow: "hidden" }}>
@@ -403,15 +403,11 @@ function Dashboard() {
                          </div>
                       </div>
                    </div>
-                   
                    <div style={{ marginTop: "20px", padding: "15px", background: theme.bg, borderRadius: "12px", fontSize: "13px", color: theme.subText, lineHeight: "1.5" }}>
                       <strong>Narrative:</strong> {intel.narrative}
                    </div>
                 </div>
-
               </div>
-
-              {/* FOOTER */}
               <div style={{ padding: "20px", borderTop: `1px solid ${theme.border}`, textAlign: "center" }}>
                  <button onClick={() => setShowReport(false)} style={{ padding: "12px 40px", background: theme.text, color: theme.bg, border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>Close Blueprint</button>
               </div>
@@ -420,27 +416,28 @@ function Dashboard() {
         )}
       </AnimatePresence>
 
-      <div style={{ maxWidth: "1600px", margin: "0 auto", padding: isMobile ? "10px" : "20px" }}>
+      {/* MAIN LAYOUT */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", maxWidth: "1600px", width: "100%", margin: "0 auto", padding: isMobile ? "10px" : "20px", overflow: "hidden" }}>
         
         {/* HEADER */}
-        <div style={{ display: "flex", gap: "20px", marginBottom: "20px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "20px", marginBottom: "20px", flexWrap: "wrap", flexShrink: 0 }}>
            <div style={{ flex: 1, minWidth: "280px", background: theme.panel, padding: "0 24px", height: "60px", borderRadius: "12px", border: `1px solid ${theme.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontWeight: "900", color: theme.text, fontSize: "18px" }}>WAIDA <span style={{ color: theme.primary }}>PRO</span></div>
               <div style={{ fontSize: "18px", fontWeight: "bold", color: ticker[pair] > intel.setup.entry ? theme.green : theme.red }}>
                  ${formatPrice(ticker[pair])}
               </div>
            </div>
-           
            <div style={{ flex: 2, background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "0 20px", height: "60px", display: "flex", alignItems: "center", gap: "15px", overflow: "hidden" }}>
               <span style={{ fontSize: "11px", fontWeight: "bold", padding: "4px 8px", borderRadius: "4px", background: NEWS[newsIndex].impact==="HIGH"?theme.red:theme.primary, color: "#fff" }}>{NEWS[newsIndex].impact}</span>
               <span style={{ fontSize: "13px", fontWeight: "500", color: theme.text }}>{NEWS[newsIndex].title}</span>
            </div>
         </div>
 
-        <div style={{ display: isMobile ? "flex" : "grid", gridTemplateColumns: "1fr 380px", gap: "20px", flexDirection: "column" }}>
+        {/* CONTENT GRID */}
+        <div style={{ flex: 1, display: isMobile ? "flex" : "grid", gridTemplateColumns: "1fr 380px", gap: "20px", flexDirection: "column", minHeight: 0 }}>
           
-          {/* CHART */}
-          <div style={{ height: "700px", background: theme.panel, borderRadius: "16px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative" }}>
+          {/* CHART AREA */}
+          <div style={{ height: "100%", minHeight: isMobile ? "400px" : "auto", background: theme.panel, borderRadius: "16px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative", display: "flex", flexDirection: "column" }}>
              <div style={{ position: "absolute", top: "15px", left: "15px", zIndex: 10, display: "flex", gap: "10px" }}>
                 <select value={pair} onChange={e=>setPair(e.target.value)} style={{ padding: "8px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: theme.cardBg, color: theme.text, fontSize: "12px", fontWeight: "bold" }}>
                    {Object.keys(PAIRS).map(p => <option key={p} value={p}>{PAIRS[p]}</option>)}
@@ -449,13 +446,11 @@ function Dashboard() {
                    {Object.keys(TIMEFRAMES).map(t => <button key={t} onClick={()=>setTf(t)} style={{ padding: "8px 12px", border: "none", background: tf===t?theme.primary:"transparent", color: tf===t?"#fff":theme.subText, fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>{t}</button>)}
                 </div>
              </div>
-             <div ref={chartContainerRef} style={{ width: "100%", height: "100%" }} />
+             <div ref={chartContainerRef} style={{ flex: 1, width: "100%" }} />
           </div>
 
           {/* SIDEBAR */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-             
-             {/* QUICK STATUS */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px", overflowY: "auto" }}>
              <div style={{ background: theme.panel, padding: "24px", borderRadius: "16px", border: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: "12px", fontWeight: "bold", color: theme.subText, marginBottom: "20px", letterSpacing: "1px" }}>LIVE METRICS</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" }}>
@@ -465,8 +460,6 @@ function Dashboard() {
                    <StatBox label="FIB ZONE" val={intel.fib.level} color={intel.fib.level.includes("GOLDEN")?theme.gold:theme.text} theme={theme} colSpan={2} />
                 </div>
              </div>
-
-             {/* 🆕 FIBONACCI CONTROLS */}
              <div style={{ background: theme.panel, padding: "20px", borderRadius: "16px", border: `1px solid ${theme.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
                     <span style={{ fontSize: "12px", fontWeight: "bold", color: theme.subText }}>FIBONACCI LEVELS</span>
@@ -474,8 +467,6 @@ function Dashboard() {
                         {showFibs ? "VISIBLE" : "HIDDEN"}
                     </button>
                 </div>
-                
-                {/* Manual Inputs */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                      <input type="number" placeholder="High Price" value={manualFib.high} onChange={e => setManualFib({...manualFib, high: e.target.value, active: false})} style={{ padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "11px" }} />
                      <input type="number" placeholder="Low Price" value={manualFib.low} onChange={e => setManualFib({...manualFib, low: e.target.value, active: false})} style={{ padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "11px" }} />
@@ -484,8 +475,6 @@ function Dashboard() {
                     {manualFib.active ? "USING MANUAL LEVELS" : "SWITCH TO MANUAL"}
                 </button>
              </div>
-
-             {/* ALERTS */}
              <div style={{ background: theme.panel, padding: "24px", borderRadius: "16px", border: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: "12px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>PRICE ALERT</div>
                 <div style={{ display: "flex", gap: "10px" }}>
@@ -493,20 +482,16 @@ function Dashboard() {
                     <button onClick={() => { setIsAlertSet(!isAlertSet); }} style={{ padding: "10px 15px", borderRadius: "8px", border: "none", background: isAlertSet ? theme.green : theme.subText, color: "#fff", fontWeight: "bold", cursor: "pointer" }}>{isAlertSet ? "ON" : "SET"}</button>
                 </div>
              </div>
-
-             {/* ACTIONS */}
              <div style={{ marginTop: "auto" }}>
                 <button onClick={() => setShowReport(true)} style={{ width: "100%", padding: "18px", borderRadius: "12px", border: "none", background: theme.primary, color: "#fff", fontWeight: "bold", fontSize: "14px", cursor: "pointer", boxShadow: "0 4px 15px rgba(37, 99, 235, 0.3)" }}>
                    GENERATE STRATEGIC REPORT
                 </button>
              </div>
-             
-             <div style={{ display: "flex", gap: "10px" }}>
+             <div style={{ display: "flex", gap: "10px", paddingBottom: "10px" }}>
                 {Object.keys(THEMES).map(k => (
                    <button key={k} onClick={()=>setCurrentTheme(k)} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: currentTheme===k?theme.text:"transparent", color: currentTheme===k?theme.bg:theme.subText, fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}>{THEMES[k].name}</button>
                 ))}
              </div>
-
           </div>
         </div>
       </div>
