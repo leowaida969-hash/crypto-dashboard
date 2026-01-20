@@ -31,16 +31,26 @@ const PAIRS = {
   PAXGUSDT: "GOLD (XAU)" 
 };
 
+// 1. UPDATED TIMEFRAMES
 const TIMEFRAMES = { 
   "15M": "15m", 
   "30M": "30m", 
+  "45M": "1h", // Binance fallback
   "1H": "1h", 
   "4H": "4h", 
-  "1D": "1d" 
+  "1D": "1d",
+  "1W": "1w", // Weekly
+  "1M": "1M"  // Monthly
 };
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  useEffect(() => {
+    if ("Notification" in window) {
+      Notification.requestPermission();
+    }
+  }, []);
+
   if (!isLoggedIn) return <LoginGate onAuth={(v) => v === "123456" && setIsLoggedIn(true)} />;
   return <Dashboard />;
 }
@@ -50,10 +60,10 @@ function Dashboard() {
   const chartContainerRef = useRef(null);
   const seriesInstance = useRef(null);
   const sessionSeriesRef = useRef(null);
+  const volumeSeriesRef = useRef(null); 
   const linesRef = useRef([]); 
   const fibLinesRef = useRef([]); 
 
-  // 📱 MOBILE DETECTOR
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1000);
 
   useEffect(() => {
@@ -70,7 +80,14 @@ function Dashboard() {
   const [showReport, setShowReport] = useState(false);
   const [ticker, setTicker] = useState({});
   const [newsIndex, setNewsIndex] = useState(0);
+
+  // 📐 MANUAL FIB STATE
+  const [manualFib, setManualFib] = useState({ high: "", low: "", active: false });
   
+  // 🔔 ALERT STATE
+  const [alertPrice, setAlertPrice] = useState("");
+  const [isAlertSet, setIsAlertSet] = useState(false);
+
   // 🧠 MASTER INTELLIGENCE STATE
   const [intel, setIntel] = useState({
     price: 0,
@@ -83,7 +100,6 @@ function Dashboard() {
     narrative: { bias: "Neutral", context: "Scanning...", strategy: "Wait for data" }
   });
 
-  // 📰 SMART NEWS FEED
   const NEWS = [
     { title: "CPI Data Exceeds Forecast", impact: "HIGH", url: "#", source: "ForexFactory" },
     { title: "BTC 4H Close above 50 EMA", impact: "MED", url: "#", source: "TradingView" },
@@ -92,7 +108,7 @@ function Dashboard() {
     { title: "Solana Network Upgrade Complete", impact: "LOW", url: "#", source: "Coindesk" }
   ];
 
-  // 🔄 LIVE TICKER
+  // 🔄 LIVE TICKER & ALERT LOGIC
   useEffect(() => {
     const fetchMarket = async () => {
       try {
@@ -101,13 +117,32 @@ function Dashboard() {
         const map = {};
         data.forEach(d => map[d.symbol] = parseFloat(d.price));
         setTicker(map);
+
+        // --- 🔔 PRICE ALERT CHECK ---
+        if (isAlertSet && alertPrice && map[pair]) {
+          const current = map[pair];
+          const target = parseFloat(alertPrice);
+          if (Math.abs(current - target) / target < 0.001) {
+             sendPhoneNotification(`PRICE ALERT: ${pair} reached $${current}`);
+             setIsAlertSet(false); 
+             alert(`🚀 PRICE ALERT! ${pair} hit ${target}`);
+          }
+        }
       } catch(e) {}
     };
     fetchMarket();
-    const t = setInterval(fetchMarket, 5000);
+    const t = setInterval(fetchMarket, 2000); 
     const n = setInterval(() => setNewsIndex(p => (p+1)%NEWS.length), 5000);
     return () => { clearInterval(t); clearInterval(n); };
-  }, []);
+  }, [pair, isAlertSet, alertPrice]);
+
+  // 📲 NOTIFICATION FUNCTION
+  const sendPhoneNotification = (msg) => {
+    if (Notification.permission === "granted") {
+      new Notification("WAIDA Analysis Alert", { body: msg });
+    }
+    console.log("SENDING PHONE NOTIFICATION:", msg); 
+  };
 
   /* ================= CHART ENGINE ================= */
   useEffect(() => {
@@ -118,8 +153,8 @@ function Dashboard() {
       layout: { background: { type: ColorType.Solid, color: theme.panel }, textColor: theme.text },
       grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
       width: chartContainerRef.current.clientWidth,
-      height: isMobile ? 400 : 600, // 📱 Responsive Height
-      rightPriceScale: { borderColor: theme.border, scaleMargins: { top: 0.1, bottom: 0.1 } },
+      height: isMobile ? 500 : 750, 
+      rightPriceScale: { borderColor: theme.border, scaleMargins: { top: 0.1, bottom: 0.2 } },
       timeScale: { borderColor: theme.border },
     });
 
@@ -128,16 +163,42 @@ function Dashboard() {
     });
     sessionSeriesRef.current = sessionSeries;
 
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      color: theme.subText,
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume_scale', 
+    });
+    
+    chart.priceScale('volume_scale').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+    volumeSeriesRef.current = volumeSeries;
+
     const series = chart.addSeries(CandlestickSeries, {
       upColor: theme.green, downColor: theme.red, borderVisible: false, wickUpColor: theme.green, wickDownColor: theme.red,
     });
     seriesInstance.current = series;
 
-    fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${TIMEFRAMES[tf]}&limit=200`)
+    // 2. 5-YEAR DATA FETCH CONFIG
+    const fiveYearsAgo = new Date();
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+    const startTime = fiveYearsAgo.getTime();
+
+    fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${TIMEFRAMES[tf]}&limit=1000&startTime=${startTime}`)
       .then(r=>r.json())
       .then(data => {
+        if(!Array.isArray(data)) return;
         const candles = data.map(x => ({ time: x[0]/1000, open: +x[1], high: +x[2], low: +x[3], close: +x[4] }));
+        
+        const volumeData = data.map(x => ({
+          time: x[0] / 1000,
+          value: parseFloat(x[5]),
+          color: parseFloat(x[4]) >= parseFloat(x[1]) ? `${theme.green}80` : `${theme.red}80`, 
+        }));
+
         series.setData(candles);
+        volumeSeries.setData(volumeData); 
+        
         analyzeMarket(candles, series);
         drawSessions(candles, sessionSeries);
       });
@@ -145,10 +206,9 @@ function Dashboard() {
     const resize = () => chart.applyOptions({ width: chartContainerRef.current.clientWidth });
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); chart.remove(); };
-  }, [pair, tf, currentTheme, isMobile]); // 📱 Re-render on mobile switch
+  }, [pair, tf, currentTheme, isMobile, manualFib.active]); 
 
   /* ================= 🧠 ANALYSIS LOGIC ================= */
-  
   const drawFibonacci = (series, high, low, trend) => {
     fibLinesRef.current.forEach(l => series.removePriceLine(l));
     fibLinesRef.current = [];
@@ -172,55 +232,33 @@ function Dashboard() {
 
   const detectPattern = (candles) => {
     if (candles.length < 3) return "Insufficient Data";
+    const c0 = candles[candles.length - 1]; const c1 = candles[candles.length - 2]; const c2 = candles[candles.length - 3]; 
+    const isGreen = (c) => c.close > c.open; const isRed = (c) => c.close < c.open;
+    const body = (c) => Math.abs(c.close - c.open); const avgBody = (body(c0) + body(c1) + body(c2)) / 3;
 
-    const c0 = candles[candles.length - 1]; // Latest
-    const c1 = candles[candles.length - 2]; 
-    const c2 = candles[candles.length - 3]; 
-
-    const isGreen = (c) => c.close > c.open;
-    const isRed = (c) => c.close < c.open;
-    const body = (c) => Math.abs(c.close - c.open);
-    const range = (c) => c.high - c.low;
-    const avgBody = (body(c0) + body(c1) + body(c2)) / 3;
-
-    // TIER 1
-    if (isRed(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isGreen(c0) && c0.close > (c2.open + c2.close) / 2) 
-      return "Morning Star (Bullish Reversal) ☀️";
-    
-    if (isGreen(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isRed(c0) && c0.close < (c2.open + c2.close) / 2) 
-      return "Evening Star (Bearish Reversal) 🌑";
-
-    if (isGreen(c2) && isGreen(c1) && isGreen(c0) && c0.close > c1.close && c1.close > c2.close && body(c0) > avgBody * 0.8) 
-      return "3 White Soldiers (Momentum) 🚀";
-
-    if (isRed(c2) && isRed(c1) && isRed(c0) && c0.close < c1.close && c1.close < c2.close && body(c0) > avgBody * 0.8) 
-      return "3 Black Crows (Crash) 📉";
-
-    // TIER 2
+    if (isRed(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isGreen(c0) && c0.close > (c2.open + c2.close) / 2) return "Morning Star (Bullish Reversal) ☀️";
+    if (isGreen(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isRed(c0) && c0.close < (c2.open + c2.close) / 2) return "Evening Star (Bearish Reversal) 🌑";
+    if (isGreen(c2) && isGreen(c1) && isGreen(c0) && c0.close > c1.close && c1.close > c2.close) return "3 White Soldiers (Momentum) 🚀";
+    if (isRed(c2) && isRed(c1) && isRed(c0) && c0.close < c1.close && c1.close < c2.close) return "3 Black Crows (Crash) 📉";
     if (c0.high < c1.high && c0.low > c1.low) return "Inside Bar (Potential Breakout) ⚠️";
     if (isGreen(c0) && isRed(c1) && c0.close > c1.open && c0.open < c1.close) return "Bullish Engulfing";
     if (isRed(c0) && isGreen(c1) && c0.close < c1.open && c0.open > c1.close) return "Bearish Engulfing";
-
-    // TIER 3
-    const wickUp = c0.high - Math.max(c0.open, c0.close);
-    const wickDown = Math.min(c0.open, c0.close) - c0.low;
-
-    if (wickDown > body(c0) * 2 && wickUp < body(c0)) return "Bullish Hammer 🔨";
-    if (wickUp > body(c0) * 2 && wickDown < body(c0)) return "Shooting Star 🌠";
-    if (body(c0) < range(c0) * 0.1) return "Doji (Indecision) 🤷";
-    
     return "Continuation";
   };
 
   const analyzeMarket = (candles, series) => {
     const last = candles[candles.length - 1];
     const subset = candles.slice(-50);
-    const high = Math.max(...subset.map(c => c.high));
-    const low = Math.min(...subset.map(c => c.low));
+    let high = Math.max(...subset.map(c => c.high));
+    let low = Math.min(...subset.map(c => c.low));
     
+    if (manualFib.active && manualFib.high && manualFib.low) {
+      high = parseFloat(manualFib.high);
+      low = parseFloat(manualFib.low);
+    }
+
     const ema = subset.slice(-20).reduce((a,b)=>a+b.close,0)/20;
     const trend = last.close > ema ? "BULLISH" : "BEARISH";
-    
     const pattern = detectPattern(candles);
     
     linesRef.current.forEach(l => series.removePriceLine(l));
@@ -233,25 +271,13 @@ function Dashboard() {
     const range = high - low;
     const gpPrice = trend === "BULLISH" ? high - (range * 0.618) : low + (range * 0.618);
     const distToGp = Math.abs(last.close - gpPrice);
-    let fibStatus = "No Confluence";
-    if (distToGp < (range * 0.05)) fibStatus = "IN GOLDEN POCKET (0.618)";
+    let fibStatus = distToGp < (range * 0.05) ? "IN GOLDEN POCKET (0.618)" : "No Confluence";
     
     const risk = range * 0.2;
     const sl = trend === "BULLISH" ? last.close - risk : last.close + risk;
     const tp = trend === "BULLISH" ? last.close + (risk * 2) : last.close - (risk * 2);
     
-    let patternBias = "Neutral";
-    if (pattern.includes("Bullish") || pattern.includes("Soldiers") || pattern.includes("Hammer") || pattern.includes("Morning")) patternBias = "BULLISH";
-    if (pattern.includes("Bearish") || pattern.includes("Crows") || pattern.includes("Shooting") || pattern.includes("Evening")) patternBias = "BEARISH";
-
-    const narrativeText = `Price is currently ${trend} relative to the 20 EMA. ` + 
-      (fibStatus.includes("GOLDEN") ? "We are reacting to a critical Golden Pocket (0.618) level. " : "Price is moving within the range. ") +
-      `Market structure has printed a ${pattern}. ` +
-      (patternBias !== "Neutral" && patternBias === trend ? "This pattern confirms the current trend momentum." : patternBias !== "Neutral" ? "This pattern suggests a potential reversal against the trend." : "");
-
-    const suggestedAction = patternBias === "BULLISH" ? `Look for LONGS if price holds above $${last.low.toFixed(2)}` 
-                          : patternBias === "BEARISH" ? `Look for SHORTS if price stays below $${last.high.toFixed(2)}`
-                          : "Wait for clearer price action or breakout.";
+    const narrativeText = `Price is currently ${trend}. Pattern: ${pattern}. ` + (fibStatus.includes("GOLDEN") ? "Reacting to Golden Pocket." : "");
 
     setIntel({
       price: last.close,
@@ -261,7 +287,7 @@ function Dashboard() {
       pattern,
       zones: { entry: last.close, tp, sl },
       session: getSessionName(),
-      narrative: { bias: trend, context: narrativeText, strategy: suggestedAction }
+      narrative: { bias: trend, context: narrativeText, strategy: "Follow trend bias." }
     });
   };
 
@@ -287,21 +313,15 @@ function Dashboard() {
   return (
     <div style={{ background: theme.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif", color: theme.text, transition: "0.3s" }}>
       
-      {/* 📑 MASTER REPORT MODAL (RESPONSIVE) */}
+      {/* 📑 RESTORED FULL REPORT MODAL */}
       <AnimatePresence>
         {showReport && (
           <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)", padding: "10px" }}>
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              style={{ 
-                width: isMobile ? "100%" : "1000px", 
-                height: isMobile ? "90vh" : "650px", 
-                background: theme.cardBg, borderRadius: "20px", border: `1px solid ${theme.border}`, 
-                display: "flex", flexDirection: isMobile ? "column" : "row", // 📱 Column on Mobile
-                overflowY: isMobile ? "auto" : "hidden" // 📱 Scrollable on Mobile
-              }}
+              style={{ width: isMobile ? "100%" : "1000px", height: isMobile ? "90vh" : "650px", background: theme.cardBg, borderRadius: "20px", border: `1px solid ${theme.border}`, display: "flex", flexDirection: isMobile ? "column" : "row", overflowY: isMobile ? "auto" : "hidden" }}
             >
-              {/* LEFT: VISUAL & DATA */}
+              {/* LEFT: BLUEPRINT & PARAMETERS (Restored) */}
               <div style={{ background: theme.bg, borderRight: isMobile ? "none" : `1px solid ${theme.border}`, borderBottom: isMobile ? `1px solid ${theme.border}` : "none", padding: "30px", display: "flex", flexDirection: "column", minHeight: isMobile ? "auto" : "100%" }}>
                 <div style={{ fontSize: "12px", color: theme.subText, letterSpacing: "2px", fontWeight: "bold", marginBottom: "20px" }}>STRATEGIC BLUEPRINT</div>
                 
@@ -337,23 +357,13 @@ function Dashboard() {
                 </div>
               </div>
 
-              {/* RIGHT: NARRATIVE & SUMMARY */}
-              <div style={{ padding: "30px", display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                  <div>
-                    <h2 style={{ margin: 0, fontSize: isMobile ? "22px" : "28px", color: theme.text }}>Analysis Report</h2>
-                    <span style={{ color: theme.subText, fontSize: "12px" }}>Generated for {pair} on {tf}</span>
-                  </div>
-                  <div style={{ background: theme.bg, padding: "8px 16px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontWeight: "bold", color: theme.primary, fontSize: "12px" }}>
-                    {intel.session}
-                  </div>
-                </div>
-
+              {/* RIGHT: NARRATIVE (Restored) */}
+              <div style={{ padding: "30px", flex: 1, display: "flex", flexDirection: "column" }}>
+                <h2 style={{color: theme.text, marginBottom: "20px"}}>Analysis Report</h2>
                 <div style={{ marginBottom: "20px" }}>
                    <h3 style={{ fontSize: "16px", color: theme.text, marginBottom: "10px" }}>Technical Narrative</h3>
                    <p style={{ fontSize: "14px", lineHeight: "1.6", color: theme.subText }}>{intel.narrative.context}</p>
                 </div>
-
                 <div style={{ marginBottom: "30px" }}>
                    <h3 style={{ fontSize: "16px", color: theme.text, marginBottom: "10px" }}>Strategic Suggestion</h3>
                    <div style={{ padding: "20px", background: theme.bg, borderRadius: "12px", border: `1px solid ${theme.border}`, display: "flex", alignItems: "center", gap: "15px" }}>
@@ -364,73 +374,38 @@ function Dashboard() {
                       </div>
                    </div>
                 </div>
-
-                <div style={{ marginTop: "auto", display: "flex", gap: "15px" }}>
-                  <button onClick={() => setShowReport(false)} style={{ padding: "15px 30px", background: theme.primary, color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", flex: 1 }}>Close Report</button>
-                </div>
+                <button onClick={() => setShowReport(false)} style={{ marginTop: "auto", padding: "15px", background: theme.primary, color: "#fff", border: "none", borderRadius: "8px", width: "100%", fontWeight: "bold" }}>Close Report</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* 🚀 MAIN LAYOUT */}
       <div style={{ maxWidth: "1600px", width: "100%", margin: "0 auto", padding: isMobile ? "10px" : "20px" }}>
         
-        {/* TOP BAR: NEWS WIRE */}
+        {/* TOP BAR */}
         <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "15px", marginBottom: "20px" }}>
-           {/* Header Row */}
            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
              <div style={{ background: theme.panel, padding: "0 20px", height: "50px", display: "flex", alignItems: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontWeight: "900", color: theme.primary, fontSize: "16px", whiteSpace: "nowrap" }}>
-               MASTER <span style={{color: theme.text, marginLeft: "6px"}}>V6.1</span>
+               WAIDA <span style={{color: theme.text, marginLeft: "6px"}}>Pro</span>
              </div>
-             {/* 📱 On Mobile, show Price Ticker here */}
-             {isMobile && (
-               <div style={{ flex: 1, background: theme.panel, padding: "0 15px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "11px", fontWeight: "bold" }}>
-                  <span style={{color: theme.green}}>BTC: ${ticker["BTCUSDT"]?.toFixed(0)}</span>
-               </div>
-             )}
+             {/* 3. LIVE PRICE DISPLAY */}
+             <div style={{ flex: 1, background: theme.panel, padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "18px", fontWeight: "bold" }}>
+                <span style={{color: theme.subText, fontSize: "12px", marginRight: "8px"}}>{pair}</span>
+                <span style={{color: (ticker[pair] > intel.price) ? theme.green : theme.red}}>${ticker[pair]?.toLocaleString() || "..."}</span>
+             </div>
            </div>
            
-           {/* News Ticker */}
+           {/* News */}
            <div style={{ flex: 1, background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "0 15px", height: "50px", display: "flex", alignItems: "center", gap: "15px", overflow: "hidden" }}>
-              {!isMobile && <div style={{ fontSize: "10px", fontWeight: "bold", background: theme.red, color: "#fff", padding: "3px 6px", borderRadius: "4px", whiteSpace:"nowrap" }}>LIVE NEWS</div>}
-              <motion.div 
-                 key={newsIndex} 
-                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} 
-                 style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}
-              >
-                 <span style={{ fontSize: isMobile ? "12px" : "14px", fontWeight: "600", color: theme.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{NEWS[newsIndex].title}</span>
-                 {/* Hide source link on very small screens */}
-                 {!isMobile && (
-                   <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "bold", color: NEWS[newsIndex].impact==="HIGH"?theme.red:theme.green }}>{NEWS[newsIndex].impact} IMPACT</span>
-                      <a href={NEWS[newsIndex].url} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: theme.primary, textDecoration: "none", fontWeight: "bold" }}>Read on {NEWS[newsIndex].source} →</a>
-                   </div>
-                 )}
-              </motion.div>
+              <span style={{ fontSize: "12px", fontWeight: "600", color: theme.text }}>{NEWS[newsIndex].title}</span>
            </div>
-           
-           {/* Desktop Price Ticker */}
-           {!isMobile && (
-             <div style={{ background: theme.panel, padding: "0 20px", display: "flex", alignItems: "center", gap: "15px", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "13px", fontWeight: "bold" }}>
-                <span style={{color: theme.green}}>BTC: ${ticker["BTCUSDT"]?.toFixed(0)}</span>
-                <span style={{color: theme.gold}}>GOLD: ${ticker["PAXGUSDT"]?.toFixed(1)}</span>
-             </div>
-           )}
         </div>
 
-        {/* 📱 RESPONSIVE GRID/FLEX SWITCH */}
-        <div style={{ 
-            display: isMobile ? "flex" : "grid", 
-            gridTemplateColumns: "1fr 360px", 
-            flexDirection: "column",
-            gap: "20px" 
-        }}>
+        <div style={{ display: isMobile ? "flex" : "grid", gridTemplateColumns: "1fr 360px", flexDirection: "column", gap: "20px" }}>
           
           {/* CHART */}
-          <div style={{ height: isMobile ? "450px" : "650px", background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative", overflow: "hidden" }}>
-             {/* Toolbar (Responsive) */}
+          <div style={{ height: isMobile ? "520px" : "770px", background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative", overflow: "hidden" }}>
              <div style={{ position: "absolute", top: "10px", left: "10px", zIndex: 10, display: "flex", gap: "8px", flexWrap: "wrap", right: "10px" }}>
                 <select value={pair} onChange={e=>setPair(e.target.value)} style={{ padding: "6px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.panel, color: theme.text, fontWeight: "bold", fontSize: "11px", flex: isMobile ? 1 : "unset" }}>
                    {Object.keys(PAIRS).map(p => <option key={p} value={p}>{PAIRS[p]}</option>)}
@@ -439,50 +414,52 @@ function Dashboard() {
                    {Object.keys(TIMEFRAMES).map(t => <button key={t} onClick={()=>setTf(t)} style={{ padding: "6px 10px", border: "none", background: tf===t?theme.primary:"transparent", color: tf===t?"#fff":theme.subText, fontSize: "11px", fontWeight: "bold", whiteSpace: "nowrap" }}>{t}</button>)}
                 </div>
              </div>
-
              <div ref={chartContainerRef} style={{ width: "100%", height: "100%" }} />
-
-             <div style={{ position: "absolute", bottom: "10px", left: "10px", display: "flex", gap: "10px", fontSize: "9px", fontWeight: "bold", color: theme.subText, flexWrap: "wrap" }}>
-                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.green}}></div> SUP</span>
-                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.red}}></div> RES</span>
-                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.gold}}></div> FIB</span>
-             </div>
           </div>
 
           {/* SIDEBAR */}
           <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
              
-             {/* 1. KEY INTEL */}
+             {/* KEY INTEL */}
              <div style={{ background: theme.panel, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>LIVE INTELLIGENCE</div>
-                <InfoRow label="Pattern" val={intel.pattern} color={intel.pattern.includes("Engulfing") ? theme.primary : theme.text} theme={theme} />
-                <InfoRow label="Fib Level" val={intel.fib.level} color={intel.fib.level.includes("GOLDEN") ? theme.gold : theme.subText} theme={theme} />
+                <InfoRow label="Pattern" val={intel.pattern} color={theme.text} theme={theme} />
                 <InfoRow label="Trend" val={intel.trend} color={intel.trend==="BULLISH"?theme.green:theme.red} theme={theme} />
              </div>
 
-             {/* 2. ZONES */}
+             {/* 4. PRICE ALERT & NOTIFICATION PANEL */}
              <div style={{ background: theme.panel, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
-                <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>KEY LEVELS</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "13px", color: theme.subText }}>Breakout Resistance</span>
-                      <span style={{ fontSize: "14px", fontWeight: "bold", color: theme.red }}>${intel.structure.resistance.toFixed(2)}</span>
-                   </div>
-                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "13px", color: theme.subText }}>Breakdown Support</span>
-                      <span style={{ fontSize: "14px", fontWeight: "bold", color: theme.green }}>${intel.structure.support.toFixed(2)}</span>
-                   </div>
+                <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>PRICE ALERT (AUTO NOTIFY)</div>
+                <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
+                    <input 
+                      type="number" 
+                      placeholder="Target Price" 
+                      value={alertPrice}
+                      onChange={(e) => { setAlertPrice(e.target.value); setIsAlertSet(false); }} 
+                      style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "11px" }} 
+                    />
                 </div>
-                <div style={{ marginTop: "15px", padding: "12px", background: theme.bg, borderRadius: "8px", borderLeft: `3px solid ${theme.primary}`, fontSize: "11px", color: theme.subText, lineHeight: "1.4" }}>
-                   <strong>Narrative:</strong> {intel.narrative.strategy}
-                </div>
+                <button 
+                  onClick={() => { setIsAlertSet(!isAlertSet); if(!isAlertSet) alert(`Alert set for $${alertPrice}`); }}
+                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: isAlertSet ? theme.green : theme.subText, color: "#fff", fontWeight: "bold", fontSize: "11px", cursor: "pointer" }}
+                >
+                  {isAlertSet ? "ALERT ACTIVE 🔔" : "SET ALERT"}
+                </button>
              </div>
 
-             {/* 3. ACTION & THEME */}
-             <div style={{ display: "flex", gap: "10px", flexDirection: isMobile ? "column" : "column" }}>
-                <button onClick={() => setShowReport(true)} style={{ width: "100%", padding: "15px", borderRadius: "12px", border: "none", background: theme.text, color: theme.bg, fontWeight: "bold", fontSize: "13px", boxShadow: "0 4px 15px rgba(0,0,0,0.1)" }}>
-                   GENERATE REPORT
-                </button>
+             {/* MANUAL FIB */}
+             <div style={{ background: theme.panel, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
+                <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>MANUAL FIBONACCI</div>
+                <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
+                    <input type="number" placeholder="High" value={manualFib.high} onChange={(e) => setManualFib({...manualFib, high: e.target.value, active: false})} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "11px" }} />
+                    <input type="number" placeholder="Low" value={manualFib.low} onChange={(e) => setManualFib({...manualFib, low: e.target.value, active: false})} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "11px" }} />
+                </div>
+                <button onClick={() => setManualFib({ ...manualFib, active: !manualFib.active })} style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: manualFib.active ? theme.gold : theme.subText, color: "#fff", fontWeight: "bold", fontSize: "11px", cursor: "pointer" }}>{manualFib.active ? "DISABLE" : "APPLY"}</button>
+             </div>
+
+             {/* BUTTONS */}
+             <div style={{ display: "flex", gap: "10px", flexDirection: "column" }}>
+                <button onClick={() => setShowReport(true)} style={{ width: "100%", padding: "15px", borderRadius: "12px", border: "none", background: theme.text, color: theme.bg, fontWeight: "bold", fontSize: "13px" }}>GENERATE REPORT</button>
                 <div style={{ display: "flex", gap: "5px" }}>
                    {Object.keys(THEMES).map(k => (
                       <button key={k} onClick={()=>setCurrentTheme(k)} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: currentTheme===k?theme.primary:"transparent", color: currentTheme===k?(theme.bg==="#000000"?"#000":"#fff"):theme.subText, fontSize: "10px", fontWeight: "bold" }}>{THEMES[k].name}</button>
@@ -506,5 +483,5 @@ function InfoRow({ label, val, color, theme }) {
 }
 
 function LoginGate({ onAuth }) {
-  return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}><div style={{background:"#fff", padding:"40px", borderRadius:"16px", boxShadow:"0 10px 30px rgba(0,0,0,0.05)", textAlign:"center"}}><h3 style={{margin:"0 0 20px 0"}}>Master Analyst v6.0</h3><input type="password" placeholder="Passcode (123456)" onChange={(e) => onAuth(e.target.value)} style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", border: "1px solid #ccc", outline: "none", textAlign: "center" }} /></div></div>;
+  return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}><div style={{background:"#fff", padding:"40px", borderRadius:"16px", boxShadow:"0 10px 30px rgba(0,0,0,0.05)", textAlign:"center"}}><h3 style={{margin:"0 0 20px 0"}}>WAIDA Analysis</h3><input type="password" placeholder="Passcode (123456)" onChange={(e) => onAuth(e.target.value)} style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", border: "1px solid #ccc", outline: "none", textAlign: "center" }} /></div></div>;
 }
