@@ -200,10 +200,11 @@ function Dashboard() {
     confidence: 0, confirmations: [], narrative: "Loading..."
   });
 
+  // --- FIX: REMOVED AUTO-CLOSE ON RESIZE ---
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 1000);
-      if(window.innerWidth < 1000) setSidebarOpen(false);
+      // Removed line that closed sidebar: if(window.innerWidth < 1000) setSidebarOpen(false);
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
@@ -657,12 +658,28 @@ function Dashboard() {
                  </div>
               </div>
 
-              {/* Manual Fib Controls */}
+              {/* Manual Fib Controls - FIXED FOR MOBILE */}
               <div style={{ padding: "20px", borderBottom: `1px solid ${theme.border}` }}>
                  <div style={{ fontSize: "12px", fontWeight: "bold", color: theme.subText, marginBottom: "10px" }}>MANUAL FIBONACCI</div>
                  <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-                    <input type="number" placeholder="High" value={manualFib.high} onChange={e => setManualFib({...manualFib, high: e.target.value, active: false})} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "12px" }} />
-                    <input type="number" placeholder="Low" value={manualFib.low} onChange={e => setManualFib({...manualFib, low: e.target.value, active: false})} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "12px" }} />
+                    <input 
+                      type="number" 
+                      inputMode="decimal"
+                      step="any"
+                      placeholder="High" 
+                      value={manualFib.high} 
+                      onChange={e => setManualFib({...manualFib, high: e.target.value, active: false})} 
+                      style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "16px" }} 
+                    />
+                    <input 
+                      type="number" 
+                      inputMode="decimal"
+                      step="any"
+                      placeholder="Low" 
+                      value={manualFib.low} 
+                      onChange={e => setManualFib({...manualFib, low: e.target.value, active: false})} 
+                      style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "16px" }} 
+                    />
                  </div>
                  <button onClick={() => setManualFib(p => ({...p, active: !p.active}))} style={{ width: "100%", padding: "10px", borderRadius: "8px", border: `1px solid ${theme.primary}`, background: manualFib.active ? theme.primary : "transparent", color: manualFib.active ? "#fff" : theme.primary, fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
                     {manualFib.active ? "USING MANUAL LEVELS" : "APPLY MANUAL LEVELS"}
@@ -673,7 +690,7 @@ function Dashboard() {
               <div style={{ padding: "20px" }}>
                  <div style={{ fontSize: "12px", fontWeight: "bold", color: theme.subText, marginBottom: "10px" }}>PRICE ALERT</div>
                  <div style={{ display: "flex", gap: "10px" }}>
-                    <input type="number" placeholder="Target Price" value={alertPrice} onChange={(e) => { setAlertPrice(e.target.value); setIsAlertSet(false); }} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "12px" }} />
+                    <input type="number" placeholder="Target Price" value={alertPrice} onChange={(e) => { setAlertPrice(e.target.value); setIsAlertSet(false); }} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: "16px" }} />
                     <button onClick={() => { setIsAlertSet(!isAlertSet); }} style={{ padding: "8px 12px", borderRadius: "6px", border: "none", background: isAlertSet ? theme.green : theme.subText, color: "#fff", fontWeight: "bold", cursor: "pointer" }}>{isAlertSet ? "ON" : "SET"}</button>
                  </div>
               </div>
@@ -828,4 +845,3 @@ const ThemeToggle = ({ current, set, themes, theme }) => (
 function LoginGate({ onAuth }) {
   return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f5f9" }}><div style={{background:"#fff", padding:"40px", borderRadius:"16px", boxShadow:"0 20px 50px rgba(0,0,0,0.1)", textAlign:"center"}}><h3 style={{margin:"0 0 20px 0", color: "#0f172a"}}>WAIDA X Access</h3><input type="password" placeholder="Passcode (123456)" onChange={(e) => onAuth(e.target.value)} style={{ padding: "12px", fontSize: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", outline: "none", textAlign: "center", width: "200px" }} /></div></div>;
 }
-
