@@ -1,0 +1,2 @@
+# crypto-dashboard
+just test
