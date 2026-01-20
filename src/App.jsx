@@ -151,6 +151,7 @@ function Dashboard() {
   const emaFastRef = useRef(null); 
   const emaSlowRef = useRef(null); 
   const fibLinesRef = useRef([]); 
+  const srLinesRef = useRef([]); // NEW: S/R Lines Ref
   
   // Data Refs for Signal Generator
   const candlesRef = useRef([]); 
@@ -178,6 +179,7 @@ function Dashboard() {
   // Indicators & Tools
   const [showFibs, setShowFibs] = useState(true);
   const [showEMA, setShowEMA] = useState(false);
+  const [showSR, setShowSR] = useState(false); // NEW: Show S/R State
   const [manualFib, setManualFib] = useState({ high: "", low: "", active: false });
   const [showReport, setShowReport] = useState(false);
   const [showSettings, setShowSettings] = useState(false); 
@@ -284,9 +286,12 @@ function Dashboard() {
       if (pattern.includes("Bearish")) { score+=30; confs.push(pattern); }
     }
 
-    // Draw
+    // Draw Fibs
     if (showFibs) drawFibonacci(series, high, low, trend);
     else { fibLinesRef.current.forEach(l => series.removePriceLine(l)); fibLinesRef.current = []; }
+    
+    // Draw S/R (Called here to update on major changes or toggle)
+    drawSupportResistance(series, candles);
 
     setIntel({
       trend, rsi: rsi.toFixed(1), volatility: (range/activePrice*100).toFixed(2),
@@ -300,7 +305,66 @@ function Dashboard() {
       narrative: `Strategy: ${currentStrategy.title}. Trend is ${trend}.`
     });
 
-  }, [theme, manualFib, showFibs, currentStrategy]);
+  }, [theme, manualFib, showFibs, showSR, currentStrategy]); // Added showSR dependency
+
+  /* ================= 🧱 SUPPORT & RESISTANCE ENGINE ================= */
+  const drawSupportResistance = (series, candles) => {
+    // 1. Clear existing lines
+    srLinesRef.current.forEach(l => series.removePriceLine(l));
+    srLinesRef.current = [];
+    
+    // 2. Guard Clauses
+    if (!showSR || !candles || candles.length < 50) return;
+
+    // 3. Logic: Find Fractals (Pivot High/Low) over period 20 (10 left, 10 right)
+    // This identifies significant turning points
+    const period = 20; 
+    const levels = [];
+    
+    // Scan only visible history (optimization: last 300 candles)
+    const scanStart = Math.max(0, candles.length - 300);
+    
+    for(let i = scanStart + period; i < candles.length - period; i++) {
+        const cur = candles[i];
+        
+        // Check High Pivot
+        let isHigh = true;
+        for(let j = 1; j <= period; j++) {
+            if(candles[i-j].high > cur.high || candles[i+j].high > cur.high) { isHigh = false; break; }
+        }
+        
+        // Check Low Pivot
+        let isLow = true;
+        for(let j = 1; j <= period; j++) {
+             if(candles[i-j].low < cur.low || candles[i+j].low < cur.low) { isLow = false; break; }
+        }
+
+        if(isHigh) levels.push({ price: cur.high, type: "R" });
+        if(isLow) levels.push({ price: cur.low, type: "S" });
+    }
+
+    // 4. Clustering: Filter/Merge nearby levels
+    // If levels are within 0.5% of each other, we only keep the first one to avoid noise.
+    const uniqueLevels = [];
+    levels.forEach(l => {
+        // Check if a level already exists nearby
+        const existing = uniqueLevels.find(u => Math.abs(u.price - l.price) / l.price < 0.005); 
+        if(!existing) uniqueLevels.push(l);
+    });
+
+    // 5. Drawing
+    uniqueLevels.forEach(l => {
+        const line = series.createPriceLine({
+            price: l.price,
+            color: l.type === "R" ? theme.red : theme.green, // Theme-aware colors
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed, 
+            axisLabelVisible: true,
+            title: l.type === "R" ? "RES" : "SUP",
+        });
+        srLinesRef.current.push(line);
+    });
+  };
 
   const detectPattern = (candles) => {
     const c0 = candles[candles.length - 1]; const c1 = candles[candles.length - 2];
@@ -526,7 +590,7 @@ function Dashboard() {
     const resize = () => { if(chartContainerRef.current) chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); };
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); ws.close(); chart.remove(); };
-  }, [pair, tf, currentTheme, showEMA, showFibs, analyzeMarket, currentStrategy]);
+  }, [pair, tf, currentTheme, showEMA, showFibs, showSR, analyzeMarket, currentStrategy]);
 
   const formatPrice = (p) => !p ? "..." : p < 1 ? p.toFixed(6) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatVol = (v) => !v ? "..." : (v/1000000).toFixed(1) + "M";
@@ -604,6 +668,7 @@ function Dashboard() {
                  EMA {currentStrategy.fast}/{currentStrategy.slow}
               </button>
               <button onClick={() => setShowFibs(!showFibs)} style={{ fontSize: "12px", color: showFibs?theme.primary:theme.subText, background: "transparent", border: "none", cursor: "pointer", fontWeight: "bold" }}>FIB LEVELS</button>
+              <button onClick={() => setShowSR(!showSR)} style={{ fontSize: "12px", color: showSR?theme.primary:theme.subText, background: "transparent", border: "none", cursor: "pointer", fontWeight: "bold" }}>S/R LEVELS</button>
            </div>
 
            {/* Chart Canvas */}
@@ -828,4 +893,3 @@ const ThemeToggle = ({ current, set, themes, theme }) => (
 function LoginGate({ onAuth }) {
   return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f5f9" }}><div style={{background:"#fff", padding:"40px", borderRadius:"16px", boxShadow:"0 20px 50px rgba(0,0,0,0.1)", textAlign:"center"}}><h3 style={{margin:"0 0 20px 0", color: "#0f172a"}}>WAIDA X Access</h3><input type="password" placeholder="Passcode (123456)" onChange={(e) => onAuth(e.target.value)} style={{ padding: "12px", fontSize: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", outline: "none", textAlign: "center", width: "200px" }} /></div></div>;
 }
-
