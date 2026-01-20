@@ -32,7 +32,7 @@ const PAIRS = {
 };
 
 const TIMEFRAMES = { 
-  "15M": "15m", // Mapped to 15m (Binance standard)
+  "15M": "15m", 
   "30M": "30m", 
   "1H": "1h", 
   "4H": "4h", 
@@ -45,13 +45,22 @@ export default function App() {
   return <Dashboard />;
 }
 
-/* ================= DASHBOARD V6 ================= */
+/* ================= DASHBOARD V6 (MOBILE READY) ================= */
 function Dashboard() {
   const chartContainerRef = useRef(null);
   const seriesInstance = useRef(null);
   const sessionSeriesRef = useRef(null);
   const linesRef = useRef([]); 
   const fibLinesRef = useRef([]); 
+
+  // 📱 MOBILE DETECTOR
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1000);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1000);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const [currentTheme, setCurrentTheme] = useState("SYSTEM");
   const theme = THEMES[currentTheme];
@@ -109,7 +118,7 @@ function Dashboard() {
       layout: { background: { type: ColorType.Solid, color: theme.panel }, textColor: theme.text },
       grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
       width: chartContainerRef.current.clientWidth,
-      height: 600,
+      height: isMobile ? 400 : 600, // 📱 Responsive Height
       rightPriceScale: { borderColor: theme.border, scaleMargins: { top: 0.1, bottom: 0.1 } },
       timeScale: { borderColor: theme.border },
     });
@@ -136,11 +145,10 @@ function Dashboard() {
     const resize = () => chart.applyOptions({ width: chartContainerRef.current.clientWidth });
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); chart.remove(); };
-  }, [pair, tf, currentTheme]);
+  }, [pair, tf, currentTheme, isMobile]); // 📱 Re-render on mobile switch
 
   /* ================= 🧠 ANALYSIS LOGIC ================= */
   
-  // 1. FIBONACCI PAINTER
   const drawFibonacci = (series, high, low, trend) => {
     fibLinesRef.current.forEach(l => series.removePriceLine(l));
     fibLinesRef.current = [];
@@ -162,7 +170,6 @@ function Dashboard() {
     });
   };
 
-  // 2. 🛡️ ADVANCED PATTERN DETECTOR (UPDATED)
   const detectPattern = (candles) => {
     if (candles.length < 3) return "Insufficient Data";
 
@@ -176,31 +183,25 @@ function Dashboard() {
     const range = (c) => c.high - c.low;
     const avgBody = (body(c0) + body(c1) + body(c2)) / 3;
 
-    // --- TIER 1: COMPLEX 3-CANDLE PATTERNS ---
-    // Morning Star
+    // TIER 1
     if (isRed(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isGreen(c0) && c0.close > (c2.open + c2.close) / 2) 
       return "Morning Star (Bullish Reversal) ☀️";
     
-    // Evening Star
     if (isGreen(c2) && body(c2) > avgBody && body(c1) < body(c2) * 0.5 && isRed(c0) && c0.close < (c2.open + c2.close) / 2) 
       return "Evening Star (Bearish Reversal) 🌑";
 
-    // 3 White Soldiers
     if (isGreen(c2) && isGreen(c1) && isGreen(c0) && c0.close > c1.close && c1.close > c2.close && body(c0) > avgBody * 0.8) 
       return "3 White Soldiers (Momentum) 🚀";
 
-    // 3 Black Crows
     if (isRed(c2) && isRed(c1) && isRed(c0) && c0.close < c1.close && c1.close < c2.close && body(c0) > avgBody * 0.8) 
       return "3 Black Crows (Crash) 📉";
 
-    // --- TIER 2: 2-CANDLE PATTERNS ---
-    // Inside Bar
+    // TIER 2
     if (c0.high < c1.high && c0.low > c1.low) return "Inside Bar (Potential Breakout) ⚠️";
-    // Engulfing
     if (isGreen(c0) && isRed(c1) && c0.close > c1.open && c0.open < c1.close) return "Bullish Engulfing";
     if (isRed(c0) && isGreen(c1) && c0.close < c1.open && c0.open > c1.close) return "Bearish Engulfing";
 
-    // --- TIER 3: SINGLE CANDLE PATTERNS ---
+    // TIER 3
     const wickUp = c0.high - Math.max(c0.open, c0.close);
     const wickDown = Math.min(c0.open, c0.close) - c0.low;
 
@@ -211,42 +212,34 @@ function Dashboard() {
     return "Continuation";
   };
 
-  // 3. MAIN ANALYST
   const analyzeMarket = (candles, series) => {
     const last = candles[candles.length - 1];
     const subset = candles.slice(-50);
     const high = Math.max(...subset.map(c => c.high));
     const low = Math.min(...subset.map(c => c.low));
     
-    // Trend & Structure
     const ema = subset.slice(-20).reduce((a,b)=>a+b.close,0)/20;
     const trend = last.close > ema ? "BULLISH" : "BEARISH";
     
-    // CALL NEW PATTERN DETECTOR
     const pattern = detectPattern(candles);
     
-    // Draw S/R
     linesRef.current.forEach(l => series.removePriceLine(l));
     linesRef.current = [];
     linesRef.current.push(series.createPriceLine({ price: low, color: theme.green, lineWidth: 2, lineStyle: LineStyle.Dotted, title: "SWING LOW" }));
     linesRef.current.push(series.createPriceLine({ price: high, color: theme.red, lineWidth: 2, lineStyle: LineStyle.Dotted, title: "SWING HIGH" }));
 
-    // Draw Fibs
     drawFibonacci(series, high, low, trend);
 
-    // Fib Analysis
     const range = high - low;
     const gpPrice = trend === "BULLISH" ? high - (range * 0.618) : low + (range * 0.618);
     const distToGp = Math.abs(last.close - gpPrice);
     let fibStatus = "No Confluence";
     if (distToGp < (range * 0.05)) fibStatus = "IN GOLDEN POCKET (0.618)";
     
-    // Strategy Logic
     const risk = range * 0.2;
     const sl = trend === "BULLISH" ? last.close - risk : last.close + risk;
     const tp = trend === "BULLISH" ? last.close + (risk * 2) : last.close - (risk * 2);
     
-    // UPDATED NARRATIVE LOGIC
     let patternBias = "Neutral";
     if (pattern.includes("Bullish") || pattern.includes("Soldiers") || pattern.includes("Hammer") || pattern.includes("Morning")) patternBias = "BULLISH";
     if (pattern.includes("Bearish") || pattern.includes("Crows") || pattern.includes("Shooting") || pattern.includes("Evening")) patternBias = "BEARISH";
@@ -268,11 +261,7 @@ function Dashboard() {
       pattern,
       zones: { entry: last.close, tp, sl },
       session: getSessionName(),
-      narrative: { 
-        bias: trend, 
-        context: narrativeText,
-        strategy: suggestedAction
-      }
+      narrative: { bias: trend, context: narrativeText, strategy: suggestedAction }
     });
   };
 
@@ -298,19 +287,24 @@ function Dashboard() {
   return (
     <div style={{ background: theme.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif", color: theme.text, transition: "0.3s" }}>
       
-      {/* 📑 MASTER REPORT MODAL */}
+      {/* 📑 MASTER REPORT MODAL (RESPONSIVE) */}
       <AnimatePresence>
         {showReport && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)" }}>
+          <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)", padding: "10px" }}>
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              style={{ width: "1000px", height: "650px", background: theme.cardBg, borderRadius: "20px", border: `1px solid ${theme.border}`, display: "grid", gridTemplateColumns: "350px 1fr", overflow: "hidden" }}
+              style={{ 
+                width: isMobile ? "100%" : "1000px", 
+                height: isMobile ? "90vh" : "650px", 
+                background: theme.cardBg, borderRadius: "20px", border: `1px solid ${theme.border}`, 
+                display: "flex", flexDirection: isMobile ? "column" : "row", // 📱 Column on Mobile
+                overflowY: isMobile ? "auto" : "hidden" // 📱 Scrollable on Mobile
+              }}
             >
               {/* LEFT: VISUAL & DATA */}
-              <div style={{ background: theme.bg, borderRight: `1px solid ${theme.border}`, padding: "30px", display: "flex", flexDirection: "column" }}>
+              <div style={{ background: theme.bg, borderRight: isMobile ? "none" : `1px solid ${theme.border}`, borderBottom: isMobile ? `1px solid ${theme.border}` : "none", padding: "30px", display: "flex", flexDirection: "column", minHeight: isMobile ? "auto" : "100%" }}>
                 <div style={{ fontSize: "12px", color: theme.subText, letterSpacing: "2px", fontWeight: "bold", marginBottom: "20px" }}>STRATEGIC BLUEPRINT</div>
                 
-                {/* Visual Card */}
                 <div style={{ background: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", marginBottom: "20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
                     <span style={{ fontSize: "11px", color: theme.subText }}>TREND BIAS</span>
@@ -326,7 +320,6 @@ function Dashboard() {
                   </div>
                 </div>
 
-                {/* Suggestions */}
                 <div style={{ flex: 1 }}>
                    <div style={{ fontSize: "12px", color: theme.subText, marginBottom: "10px" }}>TRADE PARAMETERS</div>
                    <div style={{ padding: "15px", background: `${theme.green}15`, borderLeft: `4px solid ${theme.green}`, marginBottom: "10px", borderRadius: "4px" }}>
@@ -345,20 +338,20 @@ function Dashboard() {
               </div>
 
               {/* RIGHT: NARRATIVE & SUMMARY */}
-              <div style={{ padding: "40px", display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
+              <div style={{ padding: "30px", display: "flex", flexDirection: "column" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                   <div>
-                    <h2 style={{ margin: 0, fontSize: "28px", color: theme.text }}>Analysis Report</h2>
-                    <span style={{ color: theme.subText }}>Generated for {pair} on {tf} Timeframe</span>
+                    <h2 style={{ margin: 0, fontSize: isMobile ? "22px" : "28px", color: theme.text }}>Analysis Report</h2>
+                    <span style={{ color: theme.subText, fontSize: "12px" }}>Generated for {pair} on {tf}</span>
                   </div>
-                  <div style={{ background: theme.bg, padding: "8px 16px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontWeight: "bold", color: theme.primary }}>
+                  <div style={{ background: theme.bg, padding: "8px 16px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontWeight: "bold", color: theme.primary, fontSize: "12px" }}>
                     {intel.session}
                   </div>
                 </div>
 
-                <div style={{ marginBottom: "30px" }}>
+                <div style={{ marginBottom: "20px" }}>
                    <h3 style={{ fontSize: "16px", color: theme.text, marginBottom: "10px" }}>Technical Narrative</h3>
-                   <p style={{ fontSize: "14px", lineHeight: "1.8", color: theme.subText }}>{intel.narrative.context}</p>
+                   <p style={{ fontSize: "14px", lineHeight: "1.6", color: theme.subText }}>{intel.narrative.context}</p>
                 </div>
 
                 <div style={{ marginBottom: "30px" }}>
@@ -382,75 +375,93 @@ function Dashboard() {
       </AnimatePresence>
 
       {/* 🚀 MAIN LAYOUT */}
-      <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "20px" }}>
+      <div style={{ maxWidth: "1600px", width: "100%", margin: "0 auto", padding: isMobile ? "10px" : "20px" }}>
         
         {/* TOP BAR: NEWS WIRE */}
-        <div style={{ display: "flex", gap: "20px", marginBottom: "20px", alignItems: "stretch" }}>
-           {/* Logo */}
-           <div style={{ background: theme.panel, padding: "0 30px", display: "flex", alignItems: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontWeight: "900", color: theme.primary, fontSize: "18px" }}>
-             MASTER <span style={{color: theme.text, marginLeft: "6px"}}>V6.1</span>
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "15px", marginBottom: "20px" }}>
+           {/* Header Row */}
+           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+             <div style={{ background: theme.panel, padding: "0 20px", height: "50px", display: "flex", alignItems: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontWeight: "900", color: theme.primary, fontSize: "16px", whiteSpace: "nowrap" }}>
+               MASTER <span style={{color: theme.text, marginLeft: "6px"}}>V6.1</span>
+             </div>
+             {/* 📱 On Mobile, show Price Ticker here */}
+             {isMobile && (
+               <div style={{ flex: 1, background: theme.panel, padding: "0 15px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "11px", fontWeight: "bold" }}>
+                  <span style={{color: theme.green}}>BTC: ${ticker["BTCUSDT"]?.toFixed(0)}</span>
+               </div>
+             )}
            </div>
            
            {/* News Ticker */}
-           <div style={{ flex: 1, background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "12px 20px", display: "flex", alignItems: "center", gap: "15px", overflow: "hidden" }}>
-              <div style={{ fontSize: "11px", fontWeight: "bold", background: theme.red, color: "#fff", padding: "4px 8px", borderRadius: "4px" }}>LIVE IMPACT NEWS</div>
+           <div style={{ flex: 1, background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "0 15px", height: "50px", display: "flex", alignItems: "center", gap: "15px", overflow: "hidden" }}>
+              {!isMobile && <div style={{ fontSize: "10px", fontWeight: "bold", background: theme.red, color: "#fff", padding: "3px 6px", borderRadius: "4px", whiteSpace:"nowrap" }}>LIVE NEWS</div>}
               <motion.div 
                  key={newsIndex} 
                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} 
                  style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}
               >
-                 <span style={{ fontSize: "14px", fontWeight: "600", color: theme.text }}>{NEWS[newsIndex].title}</span>
-                 <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: "bold", color: NEWS[newsIndex].impact==="HIGH"?theme.red:theme.green }}>{NEWS[newsIndex].impact} IMPACT</span>
-                    <a href={NEWS[newsIndex].url} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: theme.primary, textDecoration: "none", fontWeight: "bold" }}>Read on {NEWS[newsIndex].source} →</a>
-                 </div>
+                 <span style={{ fontSize: isMobile ? "12px" : "14px", fontWeight: "600", color: theme.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{NEWS[newsIndex].title}</span>
+                 {/* Hide source link on very small screens */}
+                 {!isMobile && (
+                   <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "bold", color: NEWS[newsIndex].impact==="HIGH"?theme.red:theme.green }}>{NEWS[newsIndex].impact} IMPACT</span>
+                      <a href={NEWS[newsIndex].url} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: theme.primary, textDecoration: "none", fontWeight: "bold" }}>Read on {NEWS[newsIndex].source} →</a>
+                   </div>
+                 )}
               </motion.div>
            </div>
            
-           {/* Ticker */}
-           <div style={{ background: theme.panel, padding: "0 20px", display: "flex", alignItems: "center", gap: "15px", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "13px", fontWeight: "bold" }}>
-              <span style={{color: theme.green}}>BTC: ${ticker["BTCUSDT"]?.toFixed(0)}</span>
-              <span style={{color: theme.gold}}>GOLD: ${ticker["PAXGUSDT"]?.toFixed(1)}</span>
-           </div>
+           {/* Desktop Price Ticker */}
+           {!isMobile && (
+             <div style={{ background: theme.panel, padding: "0 20px", display: "flex", alignItems: "center", gap: "15px", borderRadius: "12px", border: `1px solid ${theme.border}`, fontSize: "13px", fontWeight: "bold" }}>
+                <span style={{color: theme.green}}>BTC: ${ticker["BTCUSDT"]?.toFixed(0)}</span>
+                <span style={{color: theme.gold}}>GOLD: ${ticker["PAXGUSDT"]?.toFixed(1)}</span>
+             </div>
+           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: "20px" }}>
+        {/* 📱 RESPONSIVE GRID/FLEX SWITCH */}
+        <div style={{ 
+            display: isMobile ? "flex" : "grid", 
+            gridTemplateColumns: "1fr 360px", 
+            flexDirection: "column",
+            gap: "20px" 
+        }}>
           
           {/* CHART */}
-          <div style={{ height: "650px", background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative" }}>
-             {/* Toolbar */}
-             <div style={{ position: "absolute", top: "20px", left: "20px", zIndex: 10, display: "flex", gap: "10px" }}>
-                <select value={pair} onChange={e=>setPair(e.target.value)} style={{ padding: "8px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: theme.panel, color: theme.text, fontWeight: "bold", boxShadow: "0 2px 5px rgba(0,0,0,0.05)" }}>
+          <div style={{ height: isMobile ? "450px" : "650px", background: theme.panel, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "10px", position: "relative", overflow: "hidden" }}>
+             {/* Toolbar (Responsive) */}
+             <div style={{ position: "absolute", top: "10px", left: "10px", zIndex: 10, display: "flex", gap: "8px", flexWrap: "wrap", right: "10px" }}>
+                <select value={pair} onChange={e=>setPair(e.target.value)} style={{ padding: "6px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: theme.panel, color: theme.text, fontWeight: "bold", fontSize: "11px", flex: isMobile ? 1 : "unset" }}>
                    {Object.keys(PAIRS).map(p => <option key={p} value={p}>{PAIRS[p]}</option>)}
                 </select>
-                <div style={{ background: theme.panel, borderRadius: "8px", border: `1px solid ${theme.border}`, display: "flex", overflow: "hidden" }}>
-                   {Object.keys(TIMEFRAMES).map(t => <button key={t} onClick={()=>setTf(t)} style={{ padding: "8px 12px", border: "none", background: tf===t?theme.primary:"transparent", color: tf===t?"#fff":theme.subText, fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>{t}</button>)}
+                <div style={{ background: theme.panel, borderRadius: "6px", border: `1px solid ${theme.border}`, display: "flex", overflow: "scroll" }}>
+                   {Object.keys(TIMEFRAMES).map(t => <button key={t} onClick={()=>setTf(t)} style={{ padding: "6px 10px", border: "none", background: tf===t?theme.primary:"transparent", color: tf===t?"#fff":theme.subText, fontSize: "11px", fontWeight: "bold", whiteSpace: "nowrap" }}>{t}</button>)}
                 </div>
              </div>
 
              <div ref={chartContainerRef} style={{ width: "100%", height: "100%" }} />
 
-             <div style={{ position: "absolute", bottom: "20px", left: "20px", display: "flex", gap: "15px", fontSize: "10px", fontWeight: "bold", color: theme.subText }}>
-                <span style={{ display: "flex", alignItems: "center", gap: "5px" }}><div style={{width:"15px", height:"2px", background: theme.green}}></div> SUPPORT</span>
-                <span style={{ display: "flex", alignItems: "center", gap: "5px" }}><div style={{width:"15px", height:"2px", background: theme.red}}></div> RESISTANCE</span>
-                <span style={{ display: "flex", alignItems: "center", gap: "5px" }}><div style={{width:"15px", height:"2px", background: theme.gold}}></div> FIBONACCI</span>
+             <div style={{ position: "absolute", bottom: "10px", left: "10px", display: "flex", gap: "10px", fontSize: "9px", fontWeight: "bold", color: theme.subText, flexWrap: "wrap" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.green}}></div> SUP</span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.red}}></div> RES</span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><div style={{width:"10px", height:"2px", background: theme.gold}}></div> FIB</span>
              </div>
           </div>
 
           {/* SIDEBAR */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
              
              {/* 1. KEY INTEL */}
-             <div style={{ background: theme.panel, padding: "24px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
+             <div style={{ background: theme.panel, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>LIVE INTELLIGENCE</div>
-                
                 <InfoRow label="Pattern" val={intel.pattern} color={intel.pattern.includes("Engulfing") ? theme.primary : theme.text} theme={theme} />
                 <InfoRow label="Fib Level" val={intel.fib.level} color={intel.fib.level.includes("GOLDEN") ? theme.gold : theme.subText} theme={theme} />
                 <InfoRow label="Trend" val={intel.trend} color={intel.trend==="BULLISH"?theme.green:theme.red} theme={theme} />
              </div>
 
              {/* 2. ZONES */}
-             <div style={{ background: theme.panel, padding: "24px", borderRadius: "12px", border: `1px solid ${theme.border}`, flex: 1 }}>
+             <div style={{ background: theme.panel, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: "11px", fontWeight: "bold", color: theme.subText, marginBottom: "15px" }}>KEY LEVELS</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
                    <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -462,22 +473,21 @@ function Dashboard() {
                       <span style={{ fontSize: "14px", fontWeight: "bold", color: theme.green }}>${intel.structure.support.toFixed(2)}</span>
                    </div>
                 </div>
-
-                <div style={{ marginTop: "20px", padding: "15px", background: theme.bg, borderRadius: "8px", borderLeft: `3px solid ${theme.primary}`, fontSize: "12px", color: theme.subText, lineHeight: "1.5" }}>
+                <div style={{ marginTop: "15px", padding: "12px", background: theme.bg, borderRadius: "8px", borderLeft: `3px solid ${theme.primary}`, fontSize: "11px", color: theme.subText, lineHeight: "1.4" }}>
                    <strong>Narrative:</strong> {intel.narrative.strategy}
                 </div>
              </div>
 
-             {/* 3. ACTION */}
-             <button onClick={() => setShowReport(true)} style={{ width: "100%", padding: "18px", borderRadius: "12px", border: "none", background: theme.text, color: theme.bg, fontWeight: "bold", cursor: "pointer", fontSize: "14px", boxShadow: "0 4px 15px rgba(0,0,0,0.1)" }}>
-                GENERATE MASTER REPORT
-             </button>
-
-             {/* THEMES */}
-             <div style={{ display: "flex", gap: "5px", marginTop: "auto" }}>
-                {Object.keys(THEMES).map(k => (
-                   <button key={k} onClick={()=>setCurrentTheme(k)} style={{ flex: 1, padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, background: currentTheme===k?theme.primary:"transparent", color: currentTheme===k?(theme.bg==="#000000"?"#000":"#fff"):theme.subText, fontSize: "10px", fontWeight: "bold", cursor: "pointer" }}>{THEMES[k].name}</button>
-                ))}
+             {/* 3. ACTION & THEME */}
+             <div style={{ display: "flex", gap: "10px", flexDirection: isMobile ? "column" : "column" }}>
+                <button onClick={() => setShowReport(true)} style={{ width: "100%", padding: "15px", borderRadius: "12px", border: "none", background: theme.text, color: theme.bg, fontWeight: "bold", fontSize: "13px", boxShadow: "0 4px 15px rgba(0,0,0,0.1)" }}>
+                   GENERATE REPORT
+                </button>
+                <div style={{ display: "flex", gap: "5px" }}>
+                   {Object.keys(THEMES).map(k => (
+                      <button key={k} onClick={()=>setCurrentTheme(k)} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: currentTheme===k?theme.primary:"transparent", color: currentTheme===k?(theme.bg==="#000000"?"#000":"#fff"):theme.subText, fontSize: "10px", fontWeight: "bold" }}>{THEMES[k].name}</button>
+                   ))}
+                </div>
              </div>
           </div>
         </div>
